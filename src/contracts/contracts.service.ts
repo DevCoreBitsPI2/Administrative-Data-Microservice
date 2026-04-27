@@ -1,12 +1,16 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 import { PrismaService } from 'src/lib/prismaService/prisma';
-import { RpcException } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { CloudinaryResponse } from 'src/lib/imageProvider/cloudinary-response';
 import { CreateContractDto, RenewContractDto, UpdateContractDto } from './dto';
 import { PaginationDto } from 'src/common';
 import { contract_status_enum } from '@prisma/client';
 import { NON_EDITABLE_STATUSES } from './enum/contract_status.enum';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { NATS_SERVICE } from 'src/config';
+import { firstValueFrom } from 'rxjs';
+import { EmailService } from 'src/lib/email/email';
 
 const streamifier = require('streamifier');
 
@@ -14,7 +18,11 @@ const streamifier = require('streamifier');
 export class ContractsService {
   private readonly logger = new Logger('contracts service');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(NATS_SERVICE) private readonly client: ClientProxy,
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+  ) {}
 
   async uploadFile(file: Express.Multer.File): Promise<CloudinaryResponse> {
     const buffer: Buffer | undefined = Buffer.isBuffer(file)
@@ -270,5 +278,85 @@ export class ContractsService {
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  }
+
+
+
+  @Cron(CronExpression.EVERY_DAY_AT_1AM)
+  async verifyContractStatus() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const in30Days = new Date(today);
+    in30Days.setDate(in30Days.getDate() + 30);
+
+    // Mark expired contracts
+    const { count: expiredCount } = await this.prisma.contracts.updateMany({
+      where: {
+        status: contract_status_enum.valid,
+        end_date: { lt: today },
+      },
+      data: { status: contract_status_enum.expired },
+    });
+
+    if (expiredCount > 0) {
+      this.logger.log(`${expiredCount} contract(s) marked as expired`);
+    }
+
+    // Notify expiring soon contracts
+    const expiringContracts = await this.prisma.contracts.findMany({
+      where: {
+        status: contract_status_enum.valid,
+        end_date: { gte: today, lte: in30Days },
+      },
+    });
+
+    if (expiringContracts.length === 0) return;
+
+    this.logger.log(`${expiringContracts.length} contract(s) expiring within 30 days — sending alerts`);
+
+    const allEmployeeIds = [...new Set([
+      ...expiringContracts.map(c => c.id_employee),
+      ...expiringContracts.map(c => c.id_manager),
+    ])];
+
+    const employees: any[] = await firstValueFrom(
+      this.client.send({ cmd: 'findEmployeesByIds' }, allEmployeeIds),
+    );
+
+    const employeeMap = new Map(employees.map((e: any) => [e.id_employee, e]));
+    const managerMap  = employeeMap;
+
+    await Promise.allSettled(
+      expiringContracts.map(async (contract) => {
+        const employee = employeeMap.get(contract.id_employee);
+        const manager  = managerMap.get(contract.id_manager);
+
+        if (!employee || !manager) {
+          this.logger.warn(`Skipping notification for contract ${contract.id_contract}: missing employee or manager data`);
+          return;
+        }
+
+        const daysLeft = Math.ceil(
+          (contract.end_date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+        );
+
+        await this.emailService.sendEmail({
+          type: 'CONTRACT_EXPIRES_SOON',
+          params: {
+            adminEmail:          manager.email,
+            employeeEmail:       employee.email,
+            employeeName:        `${employee.first_name} ${employee.last_name}`,
+            startDate:           contract.start_date,
+            endDate:             contract.end_date,
+            daysLeft,
+            contractType:        contract.contract_type,
+            contractDescription: contract.conditions,
+          },
+        });
+
+        this.logger.log(`Alert sent for contract ${contract.id_contract} — employee ${employee.first_name} ${employee.last_name} (${daysLeft} days left)`);
+      }),
+    );
   }
 }

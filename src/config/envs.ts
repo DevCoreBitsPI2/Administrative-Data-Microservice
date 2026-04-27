@@ -8,6 +8,9 @@ interface EnvVars {
   CLOUDINARY_NAME: string;
   CLOUDINARY_API_KEY: string;
   CLOUDINARY_API_SECRET: string;
+  RESEND_API_KEY: string;
+  EMAIL_FROM: string;
+  EMAIL_FROM_ADDRESS: string;
 }
 
 const envsSchema = joi
@@ -18,6 +21,9 @@ const envsSchema = joi
     CLOUDINARY_NAME: joi.string().required(),
     CLOUDINARY_API_KEY: joi.string().required(),
     CLOUDINARY_API_SECRET: joi.string().required(),
+    RESEND_API_KEY: joi.string().required(),
+    EMAIL_FROM: joi.string().required(),
+    EMAIL_FROM_ADDRESS: joi.string().email().required()
   })
   .unknown(true);
 
@@ -38,4 +44,7 @@ export const envs = {
   cloudinaryName: envVars.CLOUDINARY_NAME,
   cloudinaryApiKey: envVars.CLOUDINARY_API_KEY,
   cloudinaryApiSecret: envVars.CLOUDINARY_API_SECRET,
+  resendApiKey: envVars.RESEND_API_KEY,
+  emailFrom: envVars.EMAIL_FROM,
+  emailFromAddress: envVars.EMAIL_FROM_ADDRESS,
 };
