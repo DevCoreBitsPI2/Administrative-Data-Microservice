@@ -1,7 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { AreasService } from './areas.service';
-import { PaginationDto } from 'src/common';
+import { PaginationDto } from '@/src/common';
 import { CreateAreaDto, UpdateAreaDto } from './dto';
 
 @Controller()

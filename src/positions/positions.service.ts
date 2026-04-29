@@ -1,13 +1,13 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { CreatePositionDto } from './dto/create-position.dto';
 import { UpdatePositionDto } from './dto/update-position.dto';
-import { PrismaService } from 'src/lib/prismaService/prisma';
+import { PrismaService } from '@/src/lib/prismaService/prisma';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { PaginationDto } from 'src/common';
+import { PaginationDto } from '@/src/common';
 import { firstValueFrom } from 'rxjs';
-import { NATS_SERVICE } from 'src/config';
+import { NATS_SERVICE } from '@/src/config';
 import { status_area_type, status_position_type } from '@prisma/client';
-import { AreasService } from 'src/areas/areas.service';
+import { AreasService } from '@/src/areas/areas.service';
 
 @Injectable()
 export class PositionsService {
