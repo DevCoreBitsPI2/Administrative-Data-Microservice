@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
 import { Resend } from "resend";
-import { envs } from "src/config";
+import { envs } from "@/src/config";
 import { RpcException } from "@nestjs/microservices";
 import { EMAIL, SendEmailParams } from "./email.types";
 import { contractExpiresSoonEmail } from "./templates/contract-expired-sooner.email";

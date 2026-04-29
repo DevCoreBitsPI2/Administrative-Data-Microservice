@@ -1,16 +1,16 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
-import { PrismaService } from 'src/lib/prismaService/prisma';
+import { PrismaService } from '@/src/lib/prismaService/prisma';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { CloudinaryResponse } from 'src/lib/imageProvider/cloudinary-response';
+import { CloudinaryResponse } from '@/src/lib/imageProvider/cloudinary-response';
 import { CreateContractDto, RenewContractDto, UpdateContractDto } from './dto';
-import { PaginationDto } from 'src/common';
+import { PaginationDto } from '@/src/common';
 import { contract_status_enum } from '@prisma/client';
 import { NON_EDITABLE_STATUSES } from './enum/contract_status.enum';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { NATS_SERVICE } from 'src/config';
+import { NATS_SERVICE } from '@/src/config';
 import { firstValueFrom } from 'rxjs';
-import { EmailService } from 'src/lib/email/email';
+import { EmailService } from '@/src/lib/email/email';
 
 const streamifier = require('streamifier');
 

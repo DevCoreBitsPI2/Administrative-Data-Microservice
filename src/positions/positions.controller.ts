@@ -1,7 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { PositionsService } from './positions.service';
-import { PaginationDto } from 'src/common';
+import { PaginationDto } from '@/src/common';
 import { CreatePositionDto, UpdatePositionDto } from './dto';
 
 @Controller()

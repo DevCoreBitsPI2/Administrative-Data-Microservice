@@ -1,10 +1,10 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { CreateAreaDto } from './dto/create-area.dto';
 import { UpdateAreaDto } from './dto/update-area.dto';
-import { NATS_SERVICE } from 'src/config';
-import { PrismaService } from 'src/lib/prismaService/prisma';
+import { NATS_SERVICE } from '@/src/config';
+import { PrismaService } from '@/src/lib/prismaService/prisma';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { PaginationDto } from 'src/common';
+import { PaginationDto } from '@/src/common';
 import { Prisma, status_area_type } from '@prisma/client';
 
 @Injectable()
