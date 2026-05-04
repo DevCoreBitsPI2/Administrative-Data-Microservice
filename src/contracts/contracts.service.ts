@@ -308,6 +308,7 @@ export class ContractsService {
       where: {
         status: contract_status_enum.valid,
         end_date: { gte: today, lte: in30Days },
+        expires_soon_notified_at: null,
       },
     });
 
@@ -353,6 +354,11 @@ export class ContractsService {
             contractType:        contract.contract_type,
             contractDescription: contract.conditions,
           },
+        });
+
+        await this.prisma.contracts.update({
+          where: { id_contract: contract.id_contract },
+          data: { expires_soon_notified_at: today },
         });
 
         this.logger.log(`Alert sent for contract ${contract.id_contract} — employee ${employee.first_name} ${employee.last_name} (${daysLeft} days left)`);

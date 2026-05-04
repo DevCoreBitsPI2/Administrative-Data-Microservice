@@ -18,17 +18,18 @@ model areas {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model contracts {
-  id_contract   Int                  @id @default(autoincrement())
-  conditions    String
-  contract_type contract_type_enum
-  status        contract_status_enum @default(valid)
-  start_date    DateTime             @db.Date
-  end_date      DateTime             @db.Date
-  pdf_document  String
-  id_employee   Int
-  id_manager    Int
-  created_at    DateTime             @db.Date
-  public_id     String?
+  id_contract              Int                  @id @default(autoincrement())
+  conditions               String
+  contract_type            contract_type_enum
+  status                   contract_status_enum @default(valid)
+  start_date               DateTime             @db.Date
+  end_date                 DateTime             @db.Date
+  pdf_document             String
+  id_employee              Int
+  id_manager               Int
+  created_at               DateTime             @db.Date
+  public_id                String?
+  expires_soon_notified_at DateTime?            @db.Date
 }
 
 model positions {
