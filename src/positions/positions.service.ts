@@ -256,7 +256,7 @@ export class PositionsService {
             },
           },
         }),
-        firstValueFrom(this.client.send({ cmd: 'findAllEmployees' }, {})),
+        firstValueFrom(this.client.send({ cmd: 'findAllUsers' }, {})),
       ]);
 
       const employeeByPosition = new Map<number, { photo_url: string; first_name: string; last_name: string }>(
