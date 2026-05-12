@@ -35,7 +35,9 @@ Este microservicio gestiona los datos administrativos de la organización. Prove
 - Gestión jerárquica de cargos con detección de referencias circulares
 - Carga y gestión de contratos en PDF vía Cloudinary
 - Tarea programada diaria (1:00 AM) para verificar contratos próximos a vencer
-- Notificaciones por correo electrónico ante contratos vencidos o por vencer
+- Notificaciones por correo electrónico ante contratos próximos a vencer
+- Listados paginados con DTOs de filtro específicos por entidad
+- Estadísticas agregadas de contratos para tableros administrativos
 
 ---
 
@@ -60,21 +62,28 @@ Representa una unidad organizacional (departamento, equipo, etc.).
 
 | Campo       | Tipo                  | Descripción                     |
 |-------------|-----------------------|---------------------------------|
-| `id`        | `String` (UUID)       | Identificador único             |
+| `id_area`   | `Int`                 | Identificador único             |
 | `name`      | `String`              | Nombre del área                 |
+| `description` | `String`           | Descripción del área            |
+| `id_administrator` | `Int`         | Administrador que creó el área  |
 | `status`    | `status_area_type`    | `active` / `inactive`           |
 | `created_at`| `DateTime`            | Fecha de creación                |
-| `updated_at`| `DateTime`            | Última actualización             |
+
+Los listados de áreas incluyen `_count.positions` para exponer cuántos cargos pertenecen al área.
 
 ### `positions`
 Cargo laboral con soporte de jerarquía padre-hijo para reflejar el organigrama.
 
 | Campo                | Tipo                    | Descripción                              |
 |----------------------|-------------------------|------------------------------------------|
-| `id`                 | `String` (UUID)         | Identificador único                      |
+| `id_position`        | `Int`                   | Identificador único                      |
 | `name`               | `String`                | Nombre del cargo                         |
-| `area_id`            | `String`                | Área a la que pertenece                  |
-| `parent_position_id` | `String?`               | Cargo superior en la jerarquía (nullable)|
+| `base_salary`        | `Float?`                | Salario base opcional                    |
+| `description`        | `String`                | Descripción del cargo                    |
+| `id_administrator`   | `Int`                   | Administrador que creó el cargo          |
+| `id_area`            | `Int`                   | Área a la que pertenece                  |
+| `parent_position_id` | `Int?`                  | Cargo superior en la jerarquía (nullable)|
+| `vacancies`          | `Int`                   | Vacantes disponibles                     |
 | `status`             | `status_position_type`  | `active` / `inactive`                    |
 
 ### `contracts`
@@ -82,14 +91,17 @@ Contrato laboral de un empleado con trazabilidad completa de estado.
 
 | Campo           | Tipo                    | Descripción                                  |
 |-----------------|-------------------------|----------------------------------------------|
-| `id`            | `String` (UUID)         | Identificador único                          |
-| `employee_id`   | `String`                | Referencia al empleado                       |
-| `type`          | `contract_type_enum`    | Tipo de contrato (6 tipos disponibles)       |
+| `id_contract`   | `Int`                   | Identificador único                          |
+| `conditions`    | `String`                | Condiciones del contrato                     |
+| `contract_type` | `contract_type_enum`    | Tipo de contrato (6 tipos disponibles)       |
 | `status`        | `contract_status_enum`  | `valid` / `expired` / `renewed` / `annulled` |
 | `start_date`    | `DateTime`              | Fecha de inicio                              |
 | `end_date`      | `DateTime`              | Fecha de vencimiento                         |
-| `pdf_url`       | `String?`               | URL del documento PDF en Cloudinary          |
-| `renewed_from`  | `String?`               | ID del contrato original al renovar          |
+| `pdf_document`  | `String`                | URL del documento PDF en Cloudinary          |
+| `public_id`     | `String?`               | Public ID del archivo en Cloudinary          |
+| `id_employee`   | `Int`                   | Referencia al empleado                       |
+| `id_manager`    | `Int`                   | Referencia al manager responsable            |
+| `expires_soon_notified_at` | `DateTime?`   | Fecha en que se notificó vencimiento próximo |
 
 **Tipos de contrato disponibles:** término fijo, término indefinido, prestación de servicios, aprendizaje, temporal, obra o labor.
 
@@ -104,35 +116,64 @@ Todos los mensajes se envían con el patrón `{ cmd: '<accion>' }`.
 | `cmd`           | Payload                          | Descripción                    |
 |-----------------|----------------------------------|--------------------------------|
 | `createArea`    | `CreateAreaDto`                  | Crear área                     |
-| `findAllAreas`  | `PaginationDto`                  | Listar áreas con paginación    |
-| `findOneArea`   | `{ id: string }`                 | Obtener área por ID            |
-| `updateArea`    | `{ id: string } & UpdateAreaDto` | Actualizar área                |
-| `removeArea`    | `{ id: string }`                 | Eliminar área (soft delete)    |
+| `findAllAreas`  | `AreaPaginationDto`              | Listar áreas con paginación y filtros |
+| `findOneArea`   | `number`                         | Obtener área por ID            |
+| `updateArea`    | `{ id: number } & UpdateAreaDto` | Actualizar área                |
+| `removeArea`    | `number`                         | Desactivar área (soft delete)  |
+
+Filtros de `AreaPaginationDto`:
+- `page`, `limit`
+- `status`: `active` | `inactive`
+- `search`: busca en `name` y `description`
 
 ### Cargos
 
-| `cmd`                    | Payload                               | Descripción                            |
-|--------------------------|---------------------------------------|----------------------------------------|
-| `createPosition`         | `CreatePositionDto`                   | Crear cargo                            |
-| `findAllPositions`       | `PaginationDto`                       | Listar cargos con paginación           |
-| `findOnePosition`        | `{ id: string }`                      | Obtener cargo por ID                   |
-| `updatePosition`         | `{ id: string } & UpdatePositionDto`  | Actualizar cargo                       |
-| `removePosition`         | `{ id: string }`                      | Eliminar cargo                         |
-| `positionsTree`          | —                                     | Obtener árbol jerárquico completo      |
-| `removePositionHierarchy`| `{ id: string }`                      | Eliminar cargo y toda su descendencia  |
+| `cmd`                    | Payload                                  | Descripción                            |
+|--------------------------|------------------------------------------|----------------------------------------|
+| `createPosition`         | `CreatePositionDto`                      | Crear cargo                            |
+| `findAllPositions`       | `PositionPaginationDto`                  | Listar cargos con paginación y filtros |
+| `findOnePosition`        | `number`                                 | Obtener cargo por ID                   |
+| `updatePosition`         | `{ id: number } & UpdatePositionDto`     | Actualizar cargo                       |
+| `removePosition`         | `number`                                 | Desactivar cargo (soft delete)         |
+| `positionsTree`          | `{}`                                     | Obtener árbol jerárquico completo      |
+| `removePositionHierarchy`| `number`                                 | Desvincular un cargo de su padre       |
+
+Filtros de `PositionPaginationDto`:
+- `page`, `limit`
+- `status`: `active` | `inactive`
+- `id_area`
+- `parent_position_id`
+- `search`: busca en `name` y `description`
 
 ### Contratos
 
 | `cmd`                      | Payload                                  | Descripción                                  |
 |----------------------------|------------------------------------------|----------------------------------------------|
-| `createContract`           | `CreateContractDto`                      | Crear contrato                               |
-| `createContractWithPdf`    | `CreateContractPdfDto`                   | Crear contrato con carga de PDF a Cloudinary |
-| `findAllContracts`         | `PaginationDto`                          | Listar contratos con paginación              |
-| `findOneContract`          | `{ id: string }`                         | Obtener contrato por ID                      |
-| `findContractsByEmployee`  | `{ employeeId: string }`                 | Listar contratos de un empleado              |
-| `updateContract`           | `{ id: string } & UpdateContractDto`     | Actualizar contrato                          |
-| `renewContract`            | `{ id: string } & RenewContractDto`      | Renovar contrato (crea uno nuevo y marca el anterior como `renewed`) |
-| `removeContract`           | `{ id: string }`                         | Eliminar contrato                            |
+| `createContract`           | `CreateContractWithPdfDto`               | Crear contrato con carga de PDF a Cloudinary |
+| `findAllContracts`         | `ContractPaginationDto`                  | Listar contratos con paginación y filtros    |
+| `findOneContract`          | `number`                                 | Obtener contrato por ID                      |
+| `getContractStats`         | `{}`                                     | Obtener estadísticas agregadas de contratos  |
+| `findContractsByEmployee`  | `number`                                 | Listar contratos de un empleado              |
+| `updateContract`           | `{ id: number } & UpdateContractDto`     | Actualizar contrato                          |
+| `renewContract`            | `{ id: number } & RenewContractDto`      | Renovar contrato (crea uno nuevo y marca el anterior como `renewed`) |
+| `removeContract`           | `number`                                 | Eliminar contrato                            |
+
+Filtros de `ContractPaginationDto`:
+- `page`, `limit`
+- `status`: `valid` | `expired` | `renewed` | `annulled`
+- `contract_type`: uno de los tipos de contrato soportados
+- `id_employee`
+- `id_manager`
+- `startDate`: filtra `start_date >= startDate`
+- `endDate`: filtra `end_date <= endDate`
+- `search`: busca en `conditions`
+
+Reglas de negocio de contratos:
+- `createContract` valida que `endDate` sea posterior a `startDate`.
+- `createContract` y `updateContract` rechazan solapamientos con contratos activos del mismo empleado.
+- Si `contractStatus` no llega en creación, se respeta el default de base de datos (`valid`).
+- `updateContract` no permite modificar contratos `expired`, `renewed` o `annulled`.
+- `renewContract` solo permite renovar contratos `valid`.
 
 ---
 
@@ -190,6 +231,7 @@ src/
 │   ├── areas.service.ts            # Lógica de negocio
 │   ├── areas.module.ts
 │   ├── dto/
+│   │   ├── area-pagination.dto.ts
 │   │   ├── create-area.dto.ts
 │   │   └── update-area.dto.ts
 │   └── enum/
@@ -200,6 +242,7 @@ src/
 │   ├── positions.module.ts
 │   ├── dto/
 │   │   ├── create-position.dto.ts
+│   │   ├── position-pagination.dto.ts
 │   │   └── update-position.dto.ts
 │   └── enum/
 │       └── status_position.enum.ts
@@ -208,6 +251,7 @@ src/
 │   ├── contracts.service.ts        # Lógica + cron de vencimiento
 │   ├── contracts.module.ts
 │   ├── dto/
+│   │   ├── contract-pagination.dto.ts
 │   │   ├── create-contract.dto.ts
 │   │   ├── create-contract-pdf.dto.ts
 │   │   ├── update-contract.dto.ts
