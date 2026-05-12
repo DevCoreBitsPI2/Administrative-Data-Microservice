@@ -1,8 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { ContractsService } from './contracts.service';
-import { CreateContractDto, CreateContractWithPdfDto, RenewContractDto, UpdateContractDto } from './dto';
-import { PaginationDto } from '@/src/common';
+import { ContractPaginationDto, CreateContractDto, CreateContractWithPdfDto, RenewContractDto, UpdateContractDto } from './dto';
 
 @Controller()
 export class ContractsController {
@@ -39,13 +38,18 @@ export class ContractsController {
   }
 
   @MessagePattern({ cmd: 'findAllContracts' })
-  findAll(@Payload() paginationDto: PaginationDto) {
+  findAll(@Payload() paginationDto: ContractPaginationDto) {
     return this.contractsService.findAll(paginationDto);
   }
 
   @MessagePattern({ cmd: 'findOneContract' })
   findOne(@Payload() id: number) {
     return this.contractsService.findOne(id);
+  }
+
+  @MessagePattern({ cmd: 'getContractStats' })
+  getStats() {
+    return this.contractsService.getStats();
   }
 
   @MessagePattern({ cmd: 'updateContract' })

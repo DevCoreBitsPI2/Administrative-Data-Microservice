@@ -1,9 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
-import { CreatePositionDto } from './dto/create-position.dto';
-import { UpdatePositionDto } from './dto/update-position.dto';
+import { CreatePositionDto, PositionPaginationDto, UpdatePositionDto } from './dto';
 import { PrismaService } from '@/src/lib/prismaService/prisma';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { PaginationDto } from '@/src/common';
 import { firstValueFrom } from 'rxjs';
 import { NATS_SERVICE } from '@/src/config';
 import { status_area_type, status_position_type } from '@prisma/client';
@@ -106,14 +104,27 @@ export class PositionsService {
     }
   }
 
-  async findAll(paginationDto: PaginationDto) {
+  async findAll(paginationDto: PositionPaginationDto) {
     try {
-      const total = await this.prisma.positions.count();
+      const where: any = {
+        ...(paginationDto.status && { status: paginationDto.status }),
+        ...(paginationDto.id_area && { id_area: paginationDto.id_area }),
+        ...(paginationDto.parent_position_id && { parent_position_id: paginationDto.parent_position_id }),
+        ...(paginationDto.search && {
+          OR: [
+            { name: { contains: paginationDto.search } },
+            { description: { contains: paginationDto.search } },
+          ],
+        }),
+      };
+
+      const total = await this.prisma.positions.count({ where });
       const currentPage = paginationDto.page;
       const perPage = paginationDto.limit;
 
       return {
         data: await this.prisma.positions.findMany({
+          where,
           skip: (currentPage - 1) * perPage,
           take: perPage,
         }),

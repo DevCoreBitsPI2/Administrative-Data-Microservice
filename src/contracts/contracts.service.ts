@@ -3,8 +3,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { PrismaService } from '@/src/lib/prismaService/prisma';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { CloudinaryResponse } from '@/src/lib/imageProvider/cloudinary-response';
-import { CreateContractDto, RenewContractDto, UpdateContractDto } from './dto';
-import { PaginationDto } from '@/src/common';
+import { ContractPaginationDto, CreateContractDto, RenewContractDto, UpdateContractDto } from './dto';
 import { contract_status_enum } from '@prisma/client';
 import { NON_EDITABLE_STATUSES } from './enum/contract_status.enum';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -60,30 +59,43 @@ export class ContractsService {
     }
   }
 
+  private async validateNoActiveOverlap(
+    idEmployee: number,
+    startDate: Date,
+    endDate: Date,
+    excludeContractId?: number,
+  ): Promise<void> {
+    const overlapping = await this.prisma.contracts.findFirst({
+      where: {
+        id_employee: idEmployee,
+        status: contract_status_enum.valid,
+        start_date: { lt: endDate },
+        end_date: { gt: startDate },
+        ...(excludeContractId && { id_contract: { not: excludeContractId } }),
+      },
+    });
+
+    if (overlapping) {
+      throw new RpcException({
+        status: HttpStatus.CONFLICT,
+        message: `Employee already has an active contract (id: ${overlapping.id_contract}) overlapping with the given dates`,
+      });
+    }
+  }
+
   async create(createContractDto: CreateContractDto) {
     try {
       this.validateDateRange(createContractDto.startDate, createContractDto.endDate);
-
-      const overlapping = await this.prisma.contracts.findFirst({
-        where: {
-          id_employee: createContractDto.idEmployee,
-          status: contract_status_enum.valid,
-          start_date: { lt: createContractDto.endDate },
-          end_date: { gt: createContractDto.startDate },
-        },
-      });
-
-      if (overlapping) {
-        throw new RpcException({
-          status: HttpStatus.CONFLICT,
-          message: `Employee already has an active contract (id: ${overlapping.id_contract}) overlapping with the given dates`,
-        });
-      }
+      await this.validateNoActiveOverlap(
+        createContractDto.idEmployee,
+        createContractDto.startDate,
+        createContractDto.endDate,
+      );
 
       return await this.prisma.contracts.create({
         data: {
           conditions: createContractDto.conditions,
-          status: createContractDto.contractStatus,
+          ...(createContractDto.contractStatus && { status: createContractDto.contractStatus }),
           contract_type: createContractDto.contractType,
           start_date: createContractDto.startDate,
           end_date: createContractDto.endDate,
@@ -103,14 +115,27 @@ export class ContractsService {
     }
   }
 
-  async findAll(paginationDto: PaginationDto) {
+  async findAll(paginationDto: ContractPaginationDto) {
     try {
-      const total = await this.prisma.contracts.count();
+      const where: any = {
+        ...(paginationDto.status && { status: paginationDto.status }),
+        ...(paginationDto.contract_type && { contract_type: paginationDto.contract_type }),
+        ...(paginationDto.id_employee && { id_employee: paginationDto.id_employee }),
+        ...(paginationDto.id_manager && { id_manager: paginationDto.id_manager }),
+        ...(paginationDto.startDate && { start_date: { gte: paginationDto.startDate } }),
+        ...(paginationDto.endDate && { end_date: { lte: paginationDto.endDate } }),
+        ...(paginationDto.search && {
+          conditions: { contains: paginationDto.search },
+        }),
+      };
+
+      const total = await this.prisma.contracts.count({ where });
       const currentPage = paginationDto.page;
       const perPage = paginationDto.limit;
 
       return {
         data: await this.prisma.contracts.findMany({
+          where,
           skip: (currentPage - 1) * perPage,
           take: perPage,
         }),
@@ -151,6 +176,43 @@ export class ContractsService {
     }
   }
 
+  async getStats() {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const in30Days = new Date(today);
+      in30Days.setDate(in30Days.getDate() + 30);
+
+      const [active, expiringSoon, renewed, expired, annulled] = await Promise.all([
+        this.prisma.contracts.count({ where: { status: contract_status_enum.valid } }),
+        this.prisma.contracts.count({
+          where: {
+            status: contract_status_enum.valid,
+            end_date: { gte: today, lte: in30Days },
+          },
+        }),
+        this.prisma.contracts.count({ where: { status: contract_status_enum.renewed } }),
+        this.prisma.contracts.count({ where: { status: contract_status_enum.expired } }),
+        this.prisma.contracts.count({ where: { status: contract_status_enum.annulled } }),
+      ]);
+
+      return {
+        active,
+        expiringSoon,
+        renewed,
+        expired,
+        annulled,
+        expiredOrAnnulled: expired + annulled,
+      };
+    } catch (error) {
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
   async update(id: number, updateContractDto: UpdateContractDto) {
     try {
       const contract = await this.findOne(id);
@@ -166,7 +228,9 @@ export class ContractsService {
 
       const resolvedStart = startDate ?? contract.start_date;
       const resolvedEnd   = endDate   ?? contract.end_date;
+      const resolvedEmployee = idEmployee ?? contract.id_employee;
       this.validateDateRange(resolvedStart, resolvedEnd);
+      await this.validateNoActiveOverlap(resolvedEmployee, resolvedStart, resolvedEnd, id);
 
       return await this.prisma.contracts.update({
         where: { id_contract: id },

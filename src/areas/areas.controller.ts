@@ -1,8 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { AreasService } from './areas.service';
-import { PaginationDto } from '@/src/common';
-import { CreateAreaDto, UpdateAreaDto } from './dto';
+import { AreaPaginationDto, CreateAreaDto, UpdateAreaDto } from './dto';
 
 @Controller()
 export class AreasController {
@@ -14,7 +13,7 @@ export class AreasController {
   }
 
   @MessagePattern({cmd:'findAllAreas'})
-  findAll(@Payload() paginationDto: PaginationDto) {
+  findAll(@Payload() paginationDto: AreaPaginationDto) {
     return this.areasService.findAll(paginationDto);
   }
 
