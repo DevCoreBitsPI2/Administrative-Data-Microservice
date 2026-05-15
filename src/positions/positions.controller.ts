@@ -2,7 +2,7 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { PositionsService } from './positions.service';
 import { PaginationDto } from '@/src/common';
-import { CreatePositionDto, UpdatePositionDto } from './dto';
+import { CreatePositionDto, UpdatePositionDto, FilterPositionsByAreaDto } from './dto';
 
 @Controller()
 export class PositionsController {
@@ -41,5 +41,10 @@ export class PositionsController {
   @MessagePattern({ cmd: 'removePositionHierarchy' })
   removeHierarchy(@Payload() id: number) {
     return this.positionsService.removeHierarchy(id);
+  }
+
+  @MessagePattern({ cmd: 'findPositionsByArea' })
+  findByArea(@Payload() filter: FilterPositionsByAreaDto) {
+    return this.positionsService.findByArea(filter.id_area);
   }
 }
