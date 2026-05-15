@@ -225,6 +225,20 @@ export class PositionsService {
     }
   }
 
+  async findByArea(id_area: number) {
+    try {
+      return await this.prisma.positions.findMany({
+        where: { id_area, status: status_position_type.active },
+      });
+    } catch (error) {
+      if (error instanceof RpcException) throw error;
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
   async remove(id: number) {
     try {
       const position = await this.findOne(id);
