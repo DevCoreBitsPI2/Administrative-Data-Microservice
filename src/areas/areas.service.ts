@@ -1,10 +1,8 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { CreateAreaDto } from './dto/create-area.dto';
-import { UpdateAreaDto } from './dto/update-area.dto';
+import { AreaPaginationDto, CreateAreaDto, UpdateAreaDto } from './dto';
 import { NATS_SERVICE } from '@/src/config';
 import { PrismaService } from '@/src/lib/prismaService/prisma';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { PaginationDto } from '@/src/common';
 import { Prisma, status_area_type } from '@prisma/client';
 
 @Injectable()
@@ -54,16 +52,32 @@ export class AreasService {
   }
 
 
-  async findAll(paginationDto: PaginationDto) {
+  async findAll(paginationDto: AreaPaginationDto) {
     try {
-      const total = await this.prisma.areas.count();
+      const where: any = {
+        ...(paginationDto.status && { status: paginationDto.status }),
+        ...(paginationDto.search && {
+          OR: [
+            { name: { contains: paginationDto.search } },
+            { description: { contains: paginationDto.search } },
+          ],
+        }),
+      };
+
+      const total = await this.prisma.areas.count({ where });
       const currentPage = paginationDto.page;
       const perPage = paginationDto.limit;
 
       return {
         data: await this.prisma.areas.findMany({
+          where,
           skip: (currentPage - 1) * perPage,
           take: perPage,
+          include: {
+            _count: {
+              select: { positions: true },
+            },
+          },
         }),
         meta: {
           total,
@@ -83,6 +97,11 @@ export class AreasService {
     try {
       const area = await this.prisma.areas.findUnique({
         where: { id_area: id },
+        include: {
+          _count: {
+            select: { positions: true },
+          },
+        },
       });
 
       if (!area) {

@@ -1,3 +1,4 @@
 export * from './create-position.dto';
 export * from './update-position.dto';
 export * from './filter-positions-by-area.dto';
+export * from './position-pagination.dto';

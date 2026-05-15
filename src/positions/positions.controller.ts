@@ -2,7 +2,7 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { PositionsService } from './positions.service';
 import { PaginationDto } from '@/src/common';
-import { CreatePositionDto, UpdatePositionDto, FilterPositionsByAreaDto } from './dto';
+import { CreatePositionDto, UpdatePositionDto, PositionPaginationDto, FilterPositionsByAreaDto } from './dto';
 
 @Controller()
 export class PositionsController {
@@ -14,7 +14,7 @@ export class PositionsController {
   }
 
   @MessagePattern({ cmd: 'findAllPositions' })
-  findAll(@Payload() paginationDto: PaginationDto) {
+  findAll(@Payload() paginationDto: PositionPaginationDto) {
     return this.positionsService.findAll(paginationDto);
   }
 
