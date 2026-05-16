@@ -15,12 +15,25 @@ export class AreasService {
     private readonly prisma: PrismaService
   ){}
 
+  private normalizeName(name: string): string {
+    const normalized = name.trim();
+    if (normalized.length < 3 || normalized.length > 100) {
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        message: 'Area name must be between 3 and 100 characters',
+      });
+    }
+    return normalized;
+  }
+
   async create(createAreaDto: CreateAreaDto) {
     try {
+      const name = this.normalizeName(createAreaDto.name);
+
       return await this.prisma.areas.create({
         data:{
-          name: createAreaDto.name,
-          description: createAreaDto.description,
+          name,
+          description: createAreaDto.description.trim(),
           id_administrator: createAreaDto.id_administrator,
           created_at: new Date()
         }
@@ -126,12 +139,23 @@ export class AreasService {
       await this.findOne(id);
 
       const { id: _, ...data } = updateAreaDto;
+      if (data.name !== undefined) data.name = this.normalizeName(data.name);
+      if (data.description !== undefined) data.description = data.description.trim();
 
       return await this.prisma.areas.update({
         where: { id_area: id },
         data,
       });
     } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new RpcException({
+          status: HttpStatus.CONFLICT,
+          message: 'Area with that name already exists',
+        });
+      }
       if (error instanceof RpcException) throw error;
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
@@ -143,6 +167,17 @@ export class AreasService {
   async remove(id: number) {
     try {
       const area = await this.findOne(id);
+
+      const positions = await this.prisma.positions.count({
+        where: { id_area: area.id_area },
+      });
+
+      if (positions > 0) {
+        throw new RpcException({
+          status: HttpStatus.BAD_REQUEST,
+          message: 'Area cannot be removed because it has associated positions',
+        });
+      }
 
       await this.prisma.areas.update({
         where: { id_area: id },

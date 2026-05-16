@@ -68,7 +68,7 @@ export class ContractsController {
   }
 
   @MessagePattern({ cmd: 'findContractsByEmployee' })
-  findByEmployee(@Payload() idEmployee: number) {
-    return this.contractsService.findByEmployee(idEmployee);
+  findByEmployee(@Payload() payload: { id_employee: number; paginationDto: ContractPaginationDto }) {
+    return this.contractsService.findByEmployee(payload.id_employee, payload.paginationDto);
   }
 }

@@ -92,7 +92,7 @@ export class ContractsService {
         createContractDto.endDate,
       );
 
-      return await this.prisma.contracts.create({
+      const contract = await this.prisma.contracts.create({
         data: {
           conditions: createContractDto.conditions,
           ...(createContractDto.contractStatus && { status: createContractDto.contractStatus }),
@@ -106,6 +106,14 @@ export class ContractsService {
           created_at: new Date(),
         },
       });
+
+      await this.createCareerHistory({
+        id_employee: contract.id_employee,
+        type: 'contract_modification',
+        description: `Contrato ${contract.id_contract} creado con tipo ${contract.contract_type}`,
+      });
+
+      return contract;
     } catch (error) {
       if (error instanceof RpcException) throw error;
       throw new RpcException({
@@ -232,7 +240,7 @@ export class ContractsService {
       this.validateDateRange(resolvedStart, resolvedEnd);
       await this.validateNoActiveOverlap(resolvedEmployee, resolvedStart, resolvedEnd, id);
 
-      return await this.prisma.contracts.update({
+      const updated = await this.prisma.contracts.update({
         where: { id_contract: id },
         data: {
           ...(conditions    && { conditions }),
@@ -245,6 +253,16 @@ export class ContractsService {
           ...(idManager     && { id_manager: idManager }),
         },
       });
+
+      if (this.hasContractChanges(contract, updated)) {
+        await this.createCareerHistory({
+          id_employee: updated.id_employee,
+          type: 'contract_modification',
+          description: `Contrato ${updated.id_contract} actualizado`,
+        });
+      }
+
+      return updated;
     } catch (error) {
       if (error instanceof RpcException) throw error;
       throw new RpcException({
@@ -319,6 +337,12 @@ export class ContractsService {
         }),
       ]);
 
+      await this.createCareerHistory({
+        id_employee: newContract.id_employee,
+        type: 'contract_modification',
+        description: `Contrato ${contract.id_contract} renovado hasta ${newContract.end_date.toISOString().slice(0, 10)}`,
+      });
+
       return newContract;
     } catch (error) {
       if (error instanceof RpcException) throw error;
@@ -329,12 +353,36 @@ export class ContractsService {
     }
   }
 
-  async findByEmployee(idEmployee: number) {
+  async findByEmployee(idEmployee: number, paginationDto: ContractPaginationDto) {
     try {
-      return await this.prisma.contracts.findMany({
-        where: { id_employee: idEmployee },
-        orderBy: { start_date: 'asc' },
-      });
+      const where: any = {
+        id_employee: idEmployee,
+        ...(paginationDto.status && { status: paginationDto.status }),
+        ...(paginationDto.contract_type && { contract_type: paginationDto.contract_type }),
+        ...(paginationDto.id_manager && { id_manager: paginationDto.id_manager }),
+        ...(paginationDto.startDate && { start_date: { gte: paginationDto.startDate } }),
+        ...(paginationDto.endDate && { end_date: { lte: paginationDto.endDate } }),
+        ...(paginationDto.search && {
+          conditions: { contains: paginationDto.search },
+        }),
+      };
+      const currentPage = paginationDto.page ?? 1;
+      const perPage = paginationDto.limit ?? 10;
+      const total = await this.prisma.contracts.count({ where });
+
+      return {
+        data: await this.prisma.contracts.findMany({
+          where,
+          skip: (currentPage - 1) * perPage,
+          take: perPage,
+          orderBy: { start_date: 'asc' },
+        }),
+        meta: {
+          total,
+          page: currentPage,
+          lastPage: Math.ceil(total / perPage),
+        },
+      };
     } catch (error) {
       if (error instanceof RpcException) throw error;
       throw new RpcException({
@@ -342,6 +390,33 @@ export class ContractsService {
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  }
+
+  private hasContractChanges(previous: any, updated: any): boolean {
+    return previous.conditions !== updated.conditions
+      || previous.contract_type !== updated.contract_type
+      || previous.status !== updated.status
+      || previous.pdf_document !== updated.pdf_document
+      || previous.id_employee !== updated.id_employee
+      || previous.id_manager !== updated.id_manager
+      || previous.start_date.getTime() !== updated.start_date.getTime()
+      || previous.end_date.getTime() !== updated.end_date.getTime();
+  }
+
+  private async createCareerHistory(payload: {
+    id_employee: number;
+    type: 'promotion' | 'transfer' | 'contract_modification' | 'salary_change' | 'evaluation';
+    description: string;
+  }) {
+    await firstValueFrom(
+      this.client.send(
+        { cmd: 'createCareerHistory' },
+        {
+          ...payload,
+          event_date: new Date(),
+        },
+      ),
+    );
   }
 
 

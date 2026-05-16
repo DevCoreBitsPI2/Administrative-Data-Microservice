@@ -17,6 +17,34 @@ export class PositionsService {
     private readonly prisma: PrismaService
   ) {}
 
+  private normalizeName(name: string): string {
+    const normalized = name.trim();
+    if (normalized.length < 3 || normalized.length > 100) {
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        message: 'Position name must be between 3 and 100 characters',
+      });
+    }
+    return normalized;
+  }
+
+  private async validateUniqueNameByArea(name: string, areaId: number, positionId?: number): Promise<void> {
+    const position = await this.prisma.positions.findFirst({
+      where: {
+        name,
+        id_area: areaId,
+        ...(positionId && { id_position: { not: positionId } }),
+      },
+    });
+
+    if (position) {
+      throw new RpcException({
+        status: HttpStatus.CONFLICT,
+        message: 'A position with this name already exists in the selected area',
+      });
+    }
+  }
+
   private async validateParentHierarchy(positionId: number | null, parentId: number): Promise<void> {
     if (positionId === parentId) {
       throw new RpcException({
@@ -83,11 +111,14 @@ export class PositionsService {
         await this.validateParentHierarchy(null, createPositionDto.parent_position_id);
       }
 
+      const name = this.normalizeName(createPositionDto.name);
+      await this.validateUniqueNameByArea(name, createPositionDto.id_area);
+
       return await this.prisma.positions.create({
         data: {
-          name: createPositionDto.name,
+          name,
           base_salary: createPositionDto.base_salary,
-          description: createPositionDto.description,
+          description: createPositionDto.description.trim(),
           vacancies: createPositionDto.vacancies,
           id_administrator: createPositionDto.id_administrator,
           id_area: createPositionDto.id_area,
@@ -168,18 +199,46 @@ export class PositionsService {
 
   async update(id: number, updatePositionDto: UpdatePositionDto) {
     try {
-      await this.findOne(id);
+      const position = await this.findOne(id);
 
       if (updatePositionDto.parent_position_id !== undefined) {
         await this.validateParentHierarchy(id, updatePositionDto.parent_position_id);
       }
 
       const { id: _, ...data } = updatePositionDto;
+      if (data.name !== undefined) data.name = this.normalizeName(data.name);
+      if (data.description !== undefined) data.description = data.description.trim();
 
-      return await this.prisma.positions.update({
+      if (data.name !== undefined || data.id_area !== undefined) {
+        await this.validateUniqueNameByArea(
+          data.name ?? position.name,
+          data.id_area ?? position.id_area,
+          id,
+        );
+      }
+
+      const updated = await this.prisma.positions.update({
         where: { id_position: id },
         data,
       });
+
+      if (updated.id_area !== position.id_area) {
+        await this.createCareerHistoryForPositionEmployees(
+          updated.id_position,
+          'transfer',
+          `Traslado del cargo ${updated.name} del área ${position.id_area} al área ${updated.id_area}`,
+        );
+      }
+
+      if ((updated.base_salary ?? null) !== (position.base_salary ?? null)) {
+        await this.createCareerHistoryForPositionEmployees(
+          updated.id_position,
+          'salary_change',
+          `Cambio salarial del cargo ${updated.name} de ${position.base_salary ?? 'sin salario'} a ${updated.base_salary ?? 'sin salario'}`,
+        );
+      }
+
+      return updated;
     } catch (error) {
       if (error instanceof RpcException) throw error;
       throw new RpcException({
@@ -225,6 +284,33 @@ export class PositionsService {
     }
   }
 
+  private async createCareerHistoryForPositionEmployees(
+    positionId: number,
+    type: 'promotion' | 'transfer' | 'contract_modification' | 'salary_change' | 'evaluation',
+    description: string,
+  ) {
+    const employees: { id_employee: number }[] = await firstValueFrom(
+      this.client.send({ cmd: 'findEmployeesByPositionIds' }, { positionIds: [positionId] }),
+    );
+
+    if (employees.length === 0) return;
+
+    const eventDate = new Date();
+
+    // One bulk message avoids blocking this update with one NATS round-trip per employee.
+    await firstValueFrom(
+      this.client.send(
+        { cmd: 'createManyCareerHistory' },
+        employees.map((employee) => ({
+          description,
+          event_date: eventDate,
+          type,
+          id_employee: employee.id_employee,
+        })),
+      ),
+    );
+  }
+
   async findByArea(id_area: number) {
     try {
       return await this.prisma.positions.findMany({
@@ -242,6 +328,32 @@ export class PositionsService {
   async remove(id: number) {
     try {
       const position = await this.findOne(id);
+
+      const [employees, subordinatePositions] = await Promise.all([
+        firstValueFrom(this.client.send({ cmd: 'findEmployeesByPositionIds' }, { positionIds: [position.id_position] })),
+        this.prisma.positions.count({ where: { parent_position_id: position.id_position } }),
+      ]);
+
+      if (employees.length > 0) {
+        throw new RpcException({
+          status: HttpStatus.BAD_REQUEST,
+          message: 'Position cannot be removed because it has active employees assigned',
+        });
+      }
+
+      if (position.parent_position_id !== null) {
+        throw new RpcException({
+          status: HttpStatus.BAD_REQUEST,
+          message: 'Position cannot be removed because it has a parent position assigned',
+        });
+      }
+
+      if (subordinatePositions > 0) {
+        throw new RpcException({
+          status: HttpStatus.BAD_REQUEST,
+          message: 'Position cannot be removed because it has subordinate positions',
+        });
+      }
 
       await this.prisma.positions.update({
         where: {id_position: position.id_position},
